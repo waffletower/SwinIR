@@ -1,6 +1,6 @@
-import cog
+from cog import BasePredictor, Input, Path
+from typing import List
 import tempfile
-from pathlib import Path
 import argparse
 import shutil
 import os
@@ -11,8 +11,7 @@ from collections import OrderedDict
 import numpy as np
 from main_test_swinir import define_model, setup, get_image_pair
 
-
-class Predictor(cog.Predictor):
+class Predictor(BasePredictor):
     def setup(self):
         model_dir = 'experiments/pretrained_models'
 
@@ -56,6 +55,8 @@ class Predictor(cog.Predictor):
 
         self.args = parser.parse_args('')
 
+        print("completed commandline parsing")
+        
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.tasks = {
@@ -65,18 +66,34 @@ class Predictor(cog.Predictor):
             'JPEG Compression Artifact Reduction': 'jpeg_car'
         }
 
-    @cog.input("image", type=Path, help="input image")
-    @cog.input("task_type", type=str, default='Real-World Image Super-Resolution',
-               options=['Real-World Image Super-Resolution', 'Grayscale Image Denoising', 'Color Image Denoising',
-                        'JPEG Compression Artifact Reduction'],
-               help="image restoration task type")
-    @cog.input("noise", type=int, default=15, options=[15, 25, 50],
-               help='noise level, activated for Grayscale Image Denoising and Color Image Denoising. '
-                    'Leave it as default or arbitrary if other tasks are selected')
-    @cog.input("jpeg", type=int, default=40, options=[10, 20, 30, 40],
-               help='scale factor, activated for JPEG Compression Artifact Reduction. '
-                    'Leave it as default or arbitrary if other tasks are selected')
-    def predict(self, image, task_type='Real-World Image Super-Resolution', jpeg=40, noise=15):
+    @torch.inference_mode()
+    def predict(self,
+                image: Path = Input(
+                    description="Input image"
+                ),
+                task_type: str = Input(
+                    description="Input image",
+                    default="Real-World Image Super-Resolution",
+                    choices=[
+                        'Real-World Image Super-Resolution',
+                        'Grayscale Image Denoising',
+                        'Color Image Denoising',
+                        'JPEG Compression Artifact Reduction'
+                    ],
+                ),
+                noise: int = Input(
+                    description='noise level, activated for Grayscale Image Denoising and Color Image Denoising. '
+                                'Leave it as default or arbitrary if other tasks are selected',
+                    choices=[15, 25, 50],
+                    default=15
+                ),
+                jpeg: int = Input(
+                    description='scale factor, activated for JPEG Compression Artifact Reduction. '
+                                'Leave it as default or arbitrary if other tasks are selected',
+                    choices=[10, 20, 30, 40],
+                    default=40
+                )
+    ) -> Path:
 
         self.args.task = self.tasks[task_type]
         self.args.noise = noise
@@ -141,9 +158,11 @@ class Predictor(cog.Predictor):
                 if output.ndim == 3:
                     output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))  # CHW-RGB to HCW-BGR
                 output = (output * 255.0).round().astype(np.uint8)  # float32 to uint8
+                print(f"writing to out_path: {str(out_path)}")
                 cv2.imwrite(str(out_path), output)
         finally:
             clean_folder(input_dir)
+            
         return out_path
 
 
